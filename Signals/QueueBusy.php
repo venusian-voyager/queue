@@ -1,20 +1,20 @@
 <?php
 
-namespace Voyager\Queue\Events;
+namespace Voyager\Queue\Signals;
 
-class QueuePaused
+class QueueBusy
 {
     /**
      * Create a new event instance.
      *
      * @param  string  $connection  The connection name.
      * @param  string  $queue  The queue name.
-     * @param  \DateTimeInterface|\DateInterval|int|null  $ttl
+     * @param  int  $size  The size of the queue.
      */
     public function __construct(
         public $connection,
         public $queue,
-        public $ttl = null,
+        public $size,
     ) {
     }
 }

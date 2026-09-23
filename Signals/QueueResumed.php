@@ -1,6 +1,6 @@
 <?php
 
-namespace Voyager\Queue\Events;
+namespace Voyager\Queue\Signals;
 
 class QueueResumed
 {

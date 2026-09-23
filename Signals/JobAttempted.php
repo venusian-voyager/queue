@@ -1,8 +1,10 @@
 <?php
 
-namespace Voyager\Queue\Events;
+namespace Voyager\Queue\Signals;
 
-class JobAttempted
+use Voyager\Contracts\Signals\Signal;
+
+class JobAttempted implements Signal
 {
     /**
      * Create a new event instance.
@@ -12,9 +14,9 @@ class JobAttempted
      * @param  bool  $exceptionOccurred  Indicates if an exception occurred while processing the job.
      */
     public function __construct(
-        public $connectionName,
+        public $connection_name,
         public $job,
-        public $exceptionOccurred = false,
+        public $exception_occurred = false,
     ) {
     }
 
@@ -25,6 +27,6 @@ class JobAttempted
      */
     public function successful(): bool
     {
-        return ! $this->job->hasFailed() && ! $this->exceptionOccurred;
+        return ! $this->job->hasFailed() && ! $this->exception_occurred;
     }
 }

@@ -1,8 +1,8 @@
 <?php
 
-namespace Voyager\Queue\Events;
+namespace Voyager\Queue\Signals;
 
-class JobProcessing
+class JobProcessed
 {
     /**
      * Create a new event instance.

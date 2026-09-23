@@ -1,18 +1,18 @@
 <?php
 
-namespace Voyager\Queue\Events;
+namespace Voyager\Queue\Signals;
 
-class JobPopping
+class JobProcessing
 {
     /**
      * Create a new event instance.
      *
      * @param  string  $connectionName  The connection name.
-     * @param  string|null  $queue  The queue name.
+     * @param  \Voyager\Contracts\Queue\Job  $job  The job instance.
      */
     public function __construct(
         public $connectionName,
-        public $queue = null
+        public $job,
     ) {
     }
 }

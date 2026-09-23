@@ -1,18 +1,20 @@
 <?php
 
-namespace Voyager\Queue\Events;
+namespace Voyager\Queue\Signals;
 
-class JobPopped
+class JobReleasedAfterException
 {
     /**
      * Create a new event instance.
      *
      * @param  string  $connectionName  The connection name.
-     * @param  \Voyager\Contracts\Queue\Job|null  $job  The job instance.
+     * @param  \Voyager\Contracts\Queue\Job  $job  The job instance.
+     * @param  int|null  $backoff  The backoff delay.
      */
     public function __construct(
         public $connectionName,
         public $job,
+        public $backoff = null
     ) {
     }
 }
