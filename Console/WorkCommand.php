@@ -81,9 +81,11 @@ class WorkCommand extends Command
     /**
      * Indicates if the worker's event listeners have been registered.
      *
-     * @var bool
+     * Per signal dispatcher, so every app a process boots gets them once.
+     *
+     * @var \WeakMap<object, true>|null
      */
-    private static $hasRegisteredListeners = false;
+    private static ?\WeakMap $hasRegisteredListeners = null;
 
     /**
      * Create a new queue work command.
@@ -181,7 +183,9 @@ class WorkCommand extends Command
      */
     protected function listenForEvents()
     {
-        if (static::$hasRegisteredListeners) {
+        static::$hasRegisteredListeners ??= new \WeakMap;
+
+        if (isset(static::$hasRegisteredListeners[$this->venusian['signals']])) {
             return;
         }
 
@@ -203,7 +207,7 @@ class WorkCommand extends Command
             $this->logFailedJob($event);
         });
 
-        static::$hasRegisteredListeners = true;
+        static::$hasRegisteredListeners[$this->venusian['signals']] = true;
     }
 
     /**
@@ -338,7 +342,7 @@ class WorkCommand extends Command
     protected function logFailedJob(JobFailed $event)
     {
         $this->venusian['queue.failer']->log(
-            $event->connection_name,
+            $event->connectionName,
             $event->job->getQueue(),
             $event->job->getRawBody(),
             $event->exception
@@ -389,6 +393,6 @@ class WorkCommand extends Command
      */
     public static function flushState()
     {
-        static::$hasRegisteredListeners = false;
+        static::$hasRegisteredListeners = null;
     }
 }

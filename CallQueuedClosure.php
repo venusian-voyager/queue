@@ -75,7 +75,8 @@ class CallQueuedClosure implements ShouldQueue
     public function handle(?TheServiceContainer $container = null): mixed
     {
         $container ??= ControlPanel::getInstance();
-        $container->call($this->closure->getClosure(), ['job' => $this]);
+
+        return $container->call($this->closure->getClosure(), ['job' => $this]);
     }
 
     /**

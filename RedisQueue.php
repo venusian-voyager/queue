@@ -9,11 +9,15 @@ use Voyager\Contracts\Queue\ClearableQueue;
 use Voyager\Contracts\Queue\Queue as QueueContract;
 use Voyager\Contracts\Redis\Factory as Redis;
 use Voyager\Queue\Jobs\RedisJob;
+use Voyager\Redis\Sockets\RedisPipe;
+use Voyager\Contracts\IOPools\Loop;
+use Voyager\Contracts\IOPools\Promise;
+use Voyager\Queue\Async\PushesAsync;
 use Voyager\Redis\Connections\PhpRedisClusterConnection;
 use Voyager\Redis\Connections\PredisClusterConnection;
 use Voyager\NutsAndBolts\DataObjects\Str;
 
-class RedisQueue extends Queue implements QueueContract, ClearableQueue
+class RedisQueue extends Queue implements QueueContract, ClearableQueue, PushesAsync
 {
     /**
      * The Redis factory implementation.
@@ -67,6 +71,12 @@ class RedisQueue extends Queue implements QueueContract, ClearableQueue
      * @var bool
      */
     protected $secondaryQueueHadJob = false;
+
+    /** The loop socket async pushes go out on, opened by the first. */
+    private ?RedisPipe $pipe = null;
+
+    /** Async pushes sent and not yet answered. */
+    private int $in_flight = 0;
 
     /**
      * Create a new Redis queue instance.
@@ -193,6 +203,8 @@ class RedisQueue extends Queue implements QueueContract, ClearableQueue
         } else {
             $connection->pipeline(fn () => $connection->transaction($bulk));
         }
+
+        return null;
     }
 
     /**
@@ -226,6 +238,8 @@ class RedisQueue extends Queue implements QueueContract, ClearableQueue
      */
     public function pushRaw(string $payload, ?string $queue = null, array $options = []): mixed
     {
+        $this->settleAsync();
+
         $this->getConnection()->eval(
             LuaScripts::push(), 2, $this->getQueue($queue),
             $this->getQueue($queue).':notify', $payload
@@ -266,6 +280,8 @@ class RedisQueue extends Queue implements QueueContract, ClearableQueue
      */
     protected function laterRaw($delay, $payload, $queue = null)
     {
+        $this->settleAsync();
+
         $this->getConnection()->eval(
             LuaScripts::later(), 1, $this->getQueue($queue).':delayed',
             $this->availableAt($delay), $payload
@@ -299,6 +315,8 @@ class RedisQueue extends Queue implements QueueContract, ClearableQueue
      */
     public function pop(?string $queue = null, int $index = 0): ?Job
     {
+        $this->settleAsync();
+
         $this->migrate($prefixed = $this->getQueue($queue));
 
         $block = ! $this->secondaryQueueHadJob && $index == 0;
@@ -319,6 +337,8 @@ class RedisQueue extends Queue implements QueueContract, ClearableQueue
                 $reserved, $this->connectionName, $queue ?: $this->default
             );
         }
+
+        return null;
     }
 
     /**
@@ -416,12 +436,96 @@ class RedisQueue extends Queue implements QueueContract, ClearableQueue
      */
     public function clear($queue)
     {
+        $this->settleAsync();
+
         $queue = $this->getQueue($queue);
 
         return $this->getConnection()->eval(
             LuaScripts::clear(), 4, $queue, $queue.':delayed',
             $queue.':reserved', $queue.':notify'
         );
+    }
+
+    public function pushAsync(object|string $job, mixed $data = '', ?string $queue = null): Promise
+    {
+        return $this->enqueueUsingAsync(
+            $job,
+            $this->createPayload($job, $this->getQueue($queue), $data),
+            $queue,
+            null,
+            fn (string $payload, ?string $queue): Promise => $this->pushRawAsync($payload, $queue),
+        );
+    }
+
+    public function laterAsync(DateInterval|DateTimeInterface|int $delay, object|string $job, mixed $data = '', ?string $queue = null): Promise
+    {
+        return $this->enqueueUsingAsync(
+            $job,
+            $this->createPayload($job, $this->getQueue($queue), $data, $delay),
+            $queue,
+            $delay,
+            fn (string $payload, ?string $queue, DateInterval|DateTimeInterface|int $delay): Promise => $this->send(
+                ['EVAL', LuaScripts::later(), '1', $this->prefixed($this->getQueue($queue).':delayed'), (string) $this->availableAt($delay), $payload],
+                'queue later '.$this->getQueue($queue),
+            )->then(fn (): mixed => json_decode($payload, true)['id'] ?? null),
+        );
+    }
+
+    /**
+     * The push script on the loop's socket. The keys carry the connection's prefix here, as the
+     * blocking client adds it to EVAL's keys.
+     */
+    public function pushRawAsync(string $payload, ?string $queue = null, array $options = []): Promise
+    {
+        $queue = $this->getQueue($queue);
+
+        return $this->send(
+            ['EVAL', LuaScripts::push(), '2', $this->prefixed($queue), $this->prefixed($queue.':notify'), $payload],
+            "queue push {$queue}",
+        )->then(fn (): mixed => json_decode($payload, true)['id'] ?? null);
+    }
+
+    /**
+     * @param  list<string>  $arguments
+     */
+    private function send(array $arguments, string $describe): Promise
+    {
+        $this->pipe ??= $this->redis->pipe($this->connection);
+        $this->in_flight++;
+
+        $reply = $this->pipe->send($arguments, $describe);
+
+        // counted down on either outcome; the caller's own handlers see the reply unchanged
+        $reply->then(function (mixed $value): mixed {
+            $this->in_flight--;
+
+            return $value;
+        });
+        $reply->error(function (): mixed {
+            $this->in_flight--;
+
+            return null;
+        });
+
+        return $reply;
+    }
+
+    private function prefixed(string $key): string
+    {
+        $this->pipe ??= $this->redis->pipe($this->connection);
+
+        return $this->pipe->prefix().$key;
+    }
+
+    /**
+     * A blocking call waits for the async pushes before it, so the queue keeps the order the
+     * pushes were made in.
+     */
+    protected function settleAsync(): void
+    {
+        if ($this->in_flight > 0) {
+            ($this->container ?? \Voyager\Vessel\ControlPanel::getInstance())->make(Loop::class)->until(fn (): bool => $this->in_flight === 0);
+        }
     }
 
     /**

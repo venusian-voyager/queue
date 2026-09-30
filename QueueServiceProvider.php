@@ -6,6 +6,7 @@ use Voyager\Contracts\Debug\ExceptionHandler;
 use Voyager\Contracts\Signals\SignalDispatcher as EventDispatcher;
 use Voyager\Contracts\NutsAndBolts\DeferrableProvider;
 use Voyager\Queue\Connectors\BackgroundConnector;
+use Voyager\Queue\Connectors\DatabaseConnector;
 use Voyager\Queue\Connectors\DeferredConnector;
 use Voyager\Queue\Connectors\FailoverConnector;
 use Voyager\Queue\Connectors\NullConnector;
@@ -16,7 +17,6 @@ use Voyager\Queue\Failed\DatabaseUuidFailedJobProvider;
 use Voyager\Queue\Failed\FileFailedJobProvider;
 use Voyager\Queue\Failed\NullFailedJobProvider;
 use Voyager\NutsAndBolts\DataObjects\Arr;
-use Voyager\MagicAliases\MagicAlias;
 use Voyager\NutsAndBolts\ServiceProvider;
 use Laravel\SerializableClosure\SerializableClosure;
 use Voyager\Queue\Concerns\SerializesAndRestoresModelIdentifiers;
@@ -103,7 +103,7 @@ class QueueServiceProvider extends ServiceProvider implements DeferrableProvider
     public function registerConnectors($manager)
     {
         // Beanstalkd and SQS are dropped by the driver policy, along with the rest of AWS bar S3.
-        foreach (['Null', 'Sync', 'Deferred', 'Background', 'Failover', 'Redis'] as $connector) {
+        foreach (['Null', 'Sync', 'Deferred', 'Background', 'Failover', 'Database', 'Redis'] as $connector) {
             $this->{"register{$connector}Connector"}($manager);
         }
     }
@@ -184,6 +184,19 @@ class QueueServiceProvider extends ServiceProvider implements DeferrableProvider
      */
 
     /**
+     * Register the database queue connector.
+     *
+     * @param  \Voyager\Queue\QueueManager  $manager
+     * @return void
+     */
+    protected function registerDatabaseConnector($manager)
+    {
+        $manager->addConnector('database', function () {
+            return new DatabaseConnector($this->app['db']);
+        });
+    }
+
+    /**
      * Register the Redis queue connector.
      *
      * @param  \Voyager\Queue\QueueManager  $manager
@@ -224,8 +237,6 @@ class QueueServiceProvider extends ServiceProvider implements DeferrableProvider
                 }
 
                 $app->forgetScopedInstances();
-
-                Facade::clearResolvedInstances();
 
                 memory_reset_peak_usage();
             };

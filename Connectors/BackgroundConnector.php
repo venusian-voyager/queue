@@ -13,6 +13,6 @@ class BackgroundConnector implements ConnectorInterface
      */
     public function connect(array $config)
     {
-        return new BackgroundQueue($config['after_commit'] ?? null);
+        return new BackgroundQueue((bool) ($config['after_commit'] ?? false), $config['pool'] ?? null);
     }
 }

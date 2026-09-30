@@ -2,15 +2,15 @@
 
 namespace Voyager\Queue;
 
-use Voyager\Contracts\IOPools\ShouldPool;
+use Voyager\Contracts\IOPools\WorkerPools\ShouldPool;
 
 /** The gig a BackgroundQueue push becomes: on the worker, it is a plain sync push. */
-final class BackgroundPush implements ShouldPool
+final readonly class BackgroundPush implements ShouldPool
 {
     public function __construct(
-        public readonly object|string $job,
-        public readonly mixed $data,
-        public readonly ?string $queue,
+        public object|string $job,
+        public mixed $data,
+        public ?string $queue,
     ) {}
 
     public function handle(): mixed

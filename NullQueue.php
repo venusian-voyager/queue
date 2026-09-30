@@ -74,7 +74,7 @@ class NullQueue extends Queue implements QueueContract
      */
     public function push(object|string $job, mixed $data = '', ?string $queue = null): mixed
     {
-        //
+        return null;
     }
 
     /**
@@ -87,7 +87,7 @@ class NullQueue extends Queue implements QueueContract
      */
     public function pushRaw(string $payload, ?string $queue = null, array $options = []): mixed
     {
-        //
+        return null;
     }
 
     /**
@@ -101,7 +101,7 @@ class NullQueue extends Queue implements QueueContract
      */
     public function later(DateInterval|DateTimeInterface|int $delay, object|string $job, mixed $data = '', ?string $queue = null): mixed
     {
-        //
+        return null;
     }
 
     /**
@@ -112,6 +112,6 @@ class NullQueue extends Queue implements QueueContract
      */
     public function pop(?string $queue = null): ?Job
     {
-        //
+        return null;
     }
 }

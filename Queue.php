@@ -15,6 +15,9 @@ use Voyager\Contracts\Queue\ShouldBeEncrypted;
 use Voyager\Contracts\Queue\ShouldBeUnique;
 use Voyager\Contracts\Queue\ShouldQueueAfterCommit;
 use Voyager\Queue\Signals\JobQueued;
+use Voyager\Queue\Async\AsyncQueue;
+use Voyager\Contracts\IOPools\Loop;
+use Voyager\Contracts\IOPools\Promise;
 use Voyager\Queue\Signals\JobQueueing;
 use Voyager\NutsAndBolts\Collection;
 use Voyager\NutsAndBolts\Concerns\InteractsWithTime;
@@ -101,6 +104,8 @@ abstract class Queue
         foreach ((array) $jobs as $job) {
             $this->push($job, $data, $queue);
         }
+
+        return null;
     }
 
     /**
@@ -381,6 +386,67 @@ abstract class Queue
         return tap($callback($payload, $queue, $delay), function ($jobId) use ($queue, $job, $payload, $delay) {
             $this->raiseJobQueuedEvent($queue, $jobId, $job, $payload, $delay);
         });
+    }
+
+    /**
+     * This connection's pushes as promises.
+     */
+    public function async(): AsyncQueue
+    {
+        return new AsyncQueue($this, ($this->container ?? ControlPanel::getInstance())->make(Loop::class));
+    }
+
+    /**
+     * enqueueUsing() for a push that answers with a promise: the same signals, and the same wait
+     * for the transaction to commit. A push held for a commit settles once it is sent; a rollback
+     * rejects it, since the job is never pushed.
+     *
+     * @param  Closure(string, ?string, DateTimeInterface|DateInterval|int|null): Promise  $send
+     */
+    protected function enqueueUsingAsync(object|string $job, string $payload, ?string $queue, DateTimeInterface|DateInterval|int|null $delay, Closure $send): Promise
+    {
+        $push = function () use ($job, $payload, $queue, $delay, $send): Promise {
+            $this->raiseJobQueueingEvent($queue, $job, $payload, $delay);
+
+            return $send($payload, $queue, $delay)->then(function (mixed $jobId) use ($queue, $job, $payload, $delay): mixed {
+                $this->raiseJobQueuedEvent($queue, $jobId, $job, $payload, $delay);
+
+                return $jobId;
+            });
+        };
+
+        if (! $this->shouldDispatchAfterCommit($job) || ! $this->container->isBound('db.transactions')) {
+            return $push();
+        }
+
+        $transactions = $this->container->make('db.transactions');
+        $promise = $this->container->make(Loop::class)->promise();
+
+        $transactions->addCallbackForRollback(function () use ($job, $promise) {
+            if ($job instanceof ShouldBeUnique) {
+                (new UniqueLock($this->container->make(Cache::class)))->release($job);
+            }
+
+            if (! $promise->settled()) {
+                $promise->reject(new RuntimeException('The transaction the job was dispatched in rolled back, so it was never pushed.'));
+            }
+        });
+
+        $transactions->addCallback(function () use ($push, $promise) {
+            $push()
+                ->then(function (mixed $jobId) use ($promise): mixed {
+                    $promise->resolve($jobId);
+
+                    return $jobId;
+                })
+                ->error(function (Throwable $e) use ($promise): mixed {
+                    $promise->reject($e);
+
+                    return null;
+                });
+        });
+
+        return $promise;
     }
 
     /**

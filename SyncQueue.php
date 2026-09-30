@@ -238,7 +238,7 @@ class SyncQueue extends Queue implements QueueContract
      */
     public function pushRaw(string $payload, ?string $queue = null, array $options = []): mixed
     {
-        //
+        return null;
     }
 
     /**
@@ -263,6 +263,6 @@ class SyncQueue extends Queue implements QueueContract
      */
     public function pop(?string $queue = null): ?Job
     {
-        //
+        return null;
     }
 }
